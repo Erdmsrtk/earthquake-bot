@@ -17,11 +17,9 @@ logging.basicConfig(
 # ——— ENVIRONMENT ————————————————————————————————————————————————————————————
 TOKEN       = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID_STR = os.getenv("CHAT_ID")
-
 if not TOKEN or not CHAT_ID_STR:
     logging.error("Missing TELEGRAM_TOKEN or CHAT_ID environment variables!")
     exit(1)
-
 try:
     CHAT_ID = int(CHAT_ID_STR)
 except ValueError:
@@ -32,7 +30,7 @@ bot = Bot(token=TOKEN)
 
 # ——— CONSTANTS —————————————————————————————————————————————————————————————
 CITIES       = ["ISTANBUL", "IZMIR", "MANISA"]
-MAX_MESSAGES = 5
+MAX_MESSAGES = 20
 STATE_FILE   = "last_id.txt"
 SOURCE_URL   = "http://www.koeri.boun.edu.tr/scripts/lst9.asp"
 
@@ -91,8 +89,7 @@ def filter_new(lines: list[str], last_id: str) -> list[tuple[str, dict]]:
         data = parse_line(line)
         if not data:
             continue
-        norm_place = normalize(data["place"])
-        if not any(city in norm_place for city in CITIES):
+        if not any(city in normalize(data["place"]) for city in CITIES):
             continue
         eid = f"{data['date']}_{data['time']}"
         if eid == last_id:
@@ -102,28 +99,33 @@ def filter_new(lines: list[str], last_id: str) -> list[tuple[str, dict]]:
             break
     return list(reversed(found))
 
-def send_message(data: dict, eid: str) -> None:
-    """Asenkron send_message coroutine'unu çalıştırır."""
-    text = (
-        f"<b>Deprem Bilgisi</b>\n"
-        f"Yer: {data['place']}\n"
-        f"Tarih: {data['date']} {data['time']} (TSİ)\n"
-        f"Büyüklük: {data['mag']} ML\n"
-        f"Derinlik: {data['depth']} km\n"
-        f"Koordinatlar: {data['lat']}, {data['lon']}\n"
-        f"<code>#ID: {eid}</code>"
-    )
+def build_message(events: list[tuple[str, dict]]) -> str:
+    header = "🛰️ <b>Yeni Deprem Bildirimleri</b> 🛰️\n\n"
+    parts = []
+    for eid, d in events:
+        parts.append(
+            "📌 <b>{place}</b>\n"
+            "   🗓 {date} {time} (TSİ)\n"
+            "   🌋 {mag} ML — 📏 {depth} km\n"
+            "   📍 {lat}, {lon}\n"
+            "<code>#ID: {eid}</code>".format(
+                place=d["place"],
+                date=d["date"], time=d["time"],
+                mag=d["mag"], depth=d["depth"],
+                lat=d["lat"], lon=d["lon"],
+                eid=eid
+            )
+        )
+    return header + "\n\n".join(parts)
 
+def send_text(text: str) -> None:
     async def _send():
         await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="HTML")
-
     try:
         asyncio.run(_send())
-        logging.info(f"Sent: {eid}")
+        logging.info("Aggregated message sent.")
     except Exception as e:
-        logging.error(f"Failed to send {eid}: {e}")
-
-# ——— MAIN ——————————————————————————————————————————————————————————————————
+        logging.error(f"Failed to send aggregated message: {e}")
 
 def main() -> None:
     lines   = fetch_data()
@@ -137,10 +139,12 @@ def main() -> None:
         logging.info("No new quakes in target cities.")
         return
 
-    for i, (eid, data) in enumerate(new_qs):
-        send_message(data, eid)
-        if i == len(new_qs) - 1:
-            save_last_id(eid)
+    # Bir seferde tek mesaj olarak gönder
+    msg = build_message(new_qs)
+    send_text(msg)
+
+    # En güncel ID’yi kaydet
+    save_last_id(new_qs[-1][0])
 
 if __name__ == "__main__":
     main()
