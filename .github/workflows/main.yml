@@ -1,0 +1,29 @@
+name: Earthquake Bot
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'    # her 15 dakikada bir çalıştır
+  workflow_dispatch:         # manuel tetikleme için de izin verir
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 python-telegram-bot
+
+      - name: Run earthquake bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID:         ${{ secrets.CHAT_ID }}
+        run: python earthquake_bot.py
